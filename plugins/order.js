@@ -3,6 +3,8 @@ const { Markup } = require('telegraf');
 const S = require('./shared');
 const { state, GIFTS, calcDisplayPrice } = S;
 
+const PAYLOAD_PREFIX = 'order:';
+
 async function askCustomText(ctx, s) {
   await S.sendOrEdit(
     ctx,
@@ -36,28 +38,33 @@ async function sendInvoice(ctx, s) {
 
   const costPrice    = gift.price;
   const displayPrice = calcDisplayPrice(gift.price);
-  
+
   const orderId = Date.now().toString(36) + '_' + crypto.randomBytes(4).toString('hex');
 
-  const db = await S.loadDB();
   await S.clearPendingOrders(userId);
 
-  db.orders[orderId] = {
-    userId: ctx.from.id,
-    giftId: s.giftId,
-    giftName: gift.name,
-    recipientId: s.recipientId,
-    recipientLabel: s.recipientLabel,
-    customText: s.customText,
-    senderName: ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name,
-    price: displayPrice,
-    costPrice, displayPrice,
-    markup: displayPrice - costPrice,
-    status: 'pending',
-    chargeId: null,
-    createdAt: now,
-  };
-  await S.saveDB();
+  try {
+    await S.createOrder(orderId, {
+      userId: ctx.from.id,
+      giftId: s.giftId,
+      giftName: gift.name,
+      recipientId: s.recipientId,
+      recipientLabel: s.recipientLabel,
+      customText: s.customText,
+      senderName: ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name,
+      price: displayPrice,
+      costPrice,
+      displayPrice,
+      markup: displayPrice - costPrice,
+      status: 'pending',
+      chargeId: null,
+      createdAt: now,
+    });
+  } catch (err) {
+    console.error('❌ Gagal simpan order ke DB:', err.message);
+    state.deleteSession(userId);
+    return ctx.reply("❌ Gagal membuat order. Coba lagi sebentar lagi.");
+  }
 
   await ctx.reply(
     `📋 *Ringkasan Pesanan*\n\n` +
@@ -68,14 +75,21 @@ async function sendInvoice(ctx, s) {
     { parse_mode: 'Markdown' }
   );
 
-  await ctx.replyWithInvoice({
-    title: gift.name,
-    description: `Kirim ${gift.name} ke ${s.recipientLabel}`,
-    payload: `order:${orderId}`,
-    provider_token: '',
-    currency: 'XTR',
-    prices: [{ label: gift.name, amount: displayPrice }],
-  });
+  try {
+    await ctx.replyWithInvoice({
+      title: gift.name,
+      description: `Kirim ${gift.name} ke ${s.recipientLabel}`,
+      payload: `${PAYLOAD_PREFIX}${orderId}`,
+      provider_token: '',
+      currency: 'XTR',
+      prices: [{ label: gift.name, amount: displayPrice }],
+    });
+  } catch (err) {
+    console.error('❌ Gagal kirim invoice:', err.message);
+    await S.updateOrder(orderId, { status: 'failed', error: err.message });
+    state.deleteSession(userId);
+    return ctx.reply("❌ Gagal membuat invoice. Coba lagi.");
+  }
 
   await ctx.reply(
     "💳 Selesaikan pembayaran lewat tombol di atas.",
@@ -137,7 +151,7 @@ function register(bot) {
   });
 
   bot.action('buy_cancel', async (ctx) => {
-    if (await S.clearPendingOrders(ctx.from.id) > 0) await S.saveDB();
+    await S.clearPendingOrders(ctx.from.id);
     state.deleteSession(ctx.from.id);
     await ctx.answerCbQuery("Dibatalkan");
     return require('./menu').showMainMenu(ctx);
@@ -214,23 +228,57 @@ function register(bot) {
   });
 
   // ==================== PAYMENT ====================
-  bot.on('pre_checkout_query', (ctx) => ctx.answerPreCheckoutQuery(true));
+
+  // Validasi SEBELUM charge user
+  bot.on('pre_checkout_query', async (ctx) => {
+    try {
+      const payload = ctx.preCheckoutQuery.invoice_payload || '';
+      const orderId = payload.startsWith(PAYLOAD_PREFIX)
+        ? payload.slice(PAYLOAD_PREFIX.length)
+        : null;
+
+      if (!orderId) {
+        return ctx.answerPreCheckoutQuery(false, {
+          error_message: 'Payload tidak valid. Silakan buat order baru.',
+        });
+      }
+
+      const order = await S.getOrder(orderId);
+      if (!order || order.status !== 'pending') {
+        return ctx.answerPreCheckoutQuery(false, {
+          error_message: 'Order sudah tidak valid. Silakan buat order baru.',
+        });
+      }
+
+      return ctx.answerPreCheckoutQuery(true);
+    } catch (err) {
+      console.error('❌ pre_checkout error:', err.message);
+      return ctx.answerPreCheckoutQuery(false, {
+        error_message: 'Terjadi kesalahan. Coba lagi.',
+      });
+    }
+  });
 
   bot.on('successful_payment', async (ctx) => {
     const payment = ctx.message.successful_payment;
     const payload = payment.invoice_payload || '';
-    const orderId = payload.includes(':') ? payload.split(':')[1] : null;
+    const orderId = payload.startsWith(PAYLOAD_PREFIX)
+      ? payload.slice(PAYLOAD_PREFIX.length)
+      : null;
 
-    const db = await S.loadDB();
-    const order = orderId ? db.orders[orderId] : null;
+    const order = orderId ? await S.getOrder(orderId) : null;
 
+    // ---- CASE 1: Order tidak ditemukan ----
     if (!order) {
       console.error(`❌ Order ${orderId} tidak ditemukan. Refund otomatis...`);
+      state.deleteSession(ctx.from.id);
+
       const r = await S.refundStars(ctx.from.id, payment.telegram_payment_charge_id);
       await S.logEvent(
         `⚠️ *Order tidak ditemukan, refund otomatis*\n👤 User: ${ctx.from.id}\n` +
         `🆔 Payload: \`${payload}\`\n💰 Refund: ${r.ok ? '✅ OK' : '❌ GAGAL'}`
       );
+
       return ctx.reply(
         r.ok
           ? "⚠️ Order tidak ditemukan. Pembayaran kamu sudah otomatis direfund. 💸"
@@ -239,7 +287,26 @@ function register(bot) {
       );
     }
 
+    // ---- CASE 2: Order ditemukan, coba kirim gift ----
     const gift = GIFTS[order.giftId];
+    if (!gift) {
+      console.error(`❌ Gift ${order.giftId} tidak ada di catalog`);
+      state.deleteSession(ctx.from.id);
+      const r = await S.refundStars(ctx.from.id, payment.telegram_payment_charge_id);
+      await S.updateOrder(orderId, {
+        status: r.ok ? 'refunded' : 'failed',
+        chargeId: payment.telegram_payment_charge_id,
+        error: 'gift_not_in_catalog',
+        refundedAt: r.ok ? Math.floor(Date.now() / 1000) : undefined,
+      });
+      return ctx.reply(
+        r.ok
+          ? "❌ Gift tidak tersedia. Pembayaran kamu sudah otomatis direfund. 💸"
+          : "❌ Gift tidak tersedia dan refund gagal. Hubungi admin.",
+        Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+      );
+    }
+
     const costPrice    = order.costPrice    ?? gift.price;
     const displayPrice = order.displayPrice ?? order.price;
     const profit       = displayPrice - costPrice;
@@ -256,35 +323,14 @@ function register(bot) {
         text: finalText,
       });
 
-      order.status = 'paid';
-      order.chargeId = payment.telegram_payment_charge_id;
-      order.paidAt = Math.floor(Date.now() / 1000);
-      db.stats.totalSold += 1;
-      db.stats.totalStars += displayPrice;
-      db.stats.totalProfit = (db.stats.totalProfit || 0) + profit;
-
-      const uid = String(order.userId);
-      if (!db.users[uid]) {
-        db.users[uid] = {
-          username: null, firstName: null,
-          firstSeen: order.paidAt, lastSeen: order.paidAt,
-          totalOrders: 0, totalSpent: 0, giftCount: {}, verified: true,
-        };
-      }
-      db.users[uid].totalOrders += 1;
-      db.users[uid].totalSpent  += displayPrice;
-      if (!db.users[uid].giftCount) db.users[uid].giftCount = {};
-      db.users[uid].giftCount[order.giftId] = (db.users[uid].giftCount[order.giftId] || 0) + 1;
-      
-      const saveResult = await S.saveDB();
-      if (!saveResult.ok) {
-        console.error('❌ DB save failed after gift sent!', saveResult.error);
-        await S.logEvent(
-          `🚨 *Gift sent tapi DB save failed*\n` +
-          `🆔 \`${orderId}\`\n👤 \`${order.userId}\`\n` +
-          `⚠️ \`${saveResult.error}\``
-        );
-      }
+      const paidAt = Math.floor(Date.now() / 1000);
+      await S.updateOrder(orderId, {
+        status: 'paid',
+        chargeId: payment.telegram_payment_charge_id,
+        paidAt,
+      });
+      await S.incrementStats(displayPrice, profit);
+      await S.incrementUserOrder(order.userId, order.giftId, displayPrice);
 
       await ctx.reply(
         `✅ *${gift.name}* berhasil dikirim ke ${order.recipientLabel}!`,
@@ -296,7 +342,10 @@ function register(bot) {
 
       if (order.recipientId !== order.userId) {
         try {
-          await ctx.telegram.sendMessage(order.recipientId, `🎁 Kamu baru saja menerima gift! Cek profil Telegram kamu.`);
+          await ctx.telegram.sendMessage(
+            order.recipientId,
+            `🎁 Kamu baru saja menerima gift! Cek profil Telegram kamu.`
+          );
         } catch (_) {}
       }
 
@@ -322,16 +371,18 @@ function register(bot) {
       );
 
     } catch (err) {
+      // ---- CASE 3: Kirim gift gagal → refund ----
       console.error('❌ Gagal kirim gift:', err.message);
       const refund = await S.refundStars(ctx.from.id, payment.telegram_payment_charge_id);
-      order.chargeId = payment.telegram_payment_charge_id;
-      order.error = err.message;
-      order.refundOk = refund.ok;
 
       if (refund.ok) {
-        order.status = 'refunded';
-        order.refundedAt = Math.floor(Date.now() / 1000);
-        await S.saveDB();
+        await S.updateOrder(orderId, {
+          status: 'refunded',
+          chargeId: payment.telegram_payment_charge_id,
+          error: err.message,
+          refundOk: true,
+          refundedAt: Math.floor(Date.now() / 1000),
+        });
 
         await ctx.reply(
           `❌ Gift gagal dikirim (${err.message}).\n\n` +
@@ -359,13 +410,16 @@ function register(bot) {
             );
           } catch (_) {}
         }
+
       } else {
-        order.status = 'failed';
-        order.chargeId = payment.telegram_payment_charge_id;
-        order.refundAttempts = 0;
-        order.refundNextAt = Date.now() + 60_000;
-        order.refundExhausted = false;
-        await S.saveDB();
+        await S.updateOrder(orderId, {
+          status: 'failed',
+          chargeId: payment.telegram_payment_charge_id,
+          error: err.message,
+          refundAttempts: 0,
+          refundNextAt: Date.now() + 60_000,
+          refundExhausted: false,
+        });
 
         await S.logEvent(
           `🚨 *REFUND GAGAL — DIJADWALKAN RETRY*\n\n🎁 ${gift.name}\n` +

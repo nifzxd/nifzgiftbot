@@ -59,6 +59,11 @@ function parseConfigValue(type, raw) {
 
 // ==================== PANELS ====================
 async function showOwnerPanel(ctx) {
+  const userId = ctx.from.id;
+  state.deleteSession(userId);
+  state.awaitingBroadcast.delete(userId);
+  state.pendingBroadcast.delete(userId);
+
   await S.sendOrEdit(ctx, "👑 *Panel Owner*\n\nPilih menu:", {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
@@ -92,16 +97,12 @@ async function showConfigMenu(ctx) {
 function register(bot) {
   bot.command('owner', async (ctx) => {
     if (!state.isOwner(ctx.from.id)) return ctx.reply("❌ Command ini hanya untuk owner.");
-    state.deleteSession(ctx.from.id);
-    state.awaitingBroadcast.delete(ctx.from.id);
-    state.pendingBroadcast.delete(ctx.from.id);
     return showOwnerPanel(ctx);
   });
 
   bot.action('menu_owner', async (ctx) => {
     if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
     await ctx.answerCbQuery();
-    state.deleteSession(ctx.from.id);
     return showOwnerPanel(ctx);
   });
 
@@ -227,8 +228,7 @@ function register(bot) {
     state.pendingBroadcast.delete(ctx.from.id);
     await ctx.answerCbQuery("Mengirim...");
 
-    const db = await S.loadDB();
-    const ids = Object.keys(db.users);
+    const ids = await S.getAllUserIds();
     await S.sendOrEdit(ctx, `📣 Mengirim ke ${ids.length} user...`);
 
     let ok = 0, fail = 0;
@@ -272,7 +272,7 @@ function register(bot) {
         state.deleteSession(userId);
         return next();
       }
-      
+
       const key = s.configKey;
       const schema = CONFIG_SCHEMA[key];
       if (!schema) { state.deleteSession(userId); return ctx.reply("❌ Field tidak valid."); }
@@ -317,8 +317,7 @@ function register(bot) {
     if (state.awaitingBroadcast.has(userId)) {
       state.awaitingBroadcast.delete(userId);
       state.pendingBroadcast.set(userId, text);
-      const db = await S.loadDB();
-      const total = Object.keys(db.users).length;
+      const total = (await S.getAllUserIds()).length;
       const safeText = text.replace(/[_*`\[]/g, (m) => '\\' + m);
       await ctx.reply(
         `📣 *Preview Broadcast*\n\n──────────────\n${safeText}\n──────────────\n\n` +

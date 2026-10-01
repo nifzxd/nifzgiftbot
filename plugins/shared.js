@@ -35,7 +35,8 @@ state.applyConfig = (cfg) => {
   state.BROADCAST_DELAY_MS   = cfg.BROADCAST_DELAY_MS;
 };
 
-state.isOwner       = (id) => !state.OWNER_ID || id === state.OWNER_ID;
+// FIX: isOwner gak boleh auto-true pas OWNER_ID=0
+state.isOwner       = (id) => state.OWNER_ID !== 0 && id === state.OWNER_ID;
 state.getSession    = (id) => state.sessions.get(id) || {};
 state.setSession    = (id, d) => state.sessions.set(id, d);
 state.deleteSession = (id) => state.sessions.delete(id);
@@ -86,7 +87,6 @@ async function connectDB() {
     await client.connect();
     db = client.db(dbName);
 
-    // Inisialisasi collections dan indexes
     await initializeCollections();
 
     console.log('✅ MongoDB connected');
@@ -102,22 +102,18 @@ async function initializeCollections() {
     const collections = await db.listCollections().toArray();
     const collNames = collections.map(c => c.name);
 
-    // Buat collection users
     if (!collNames.includes('users')) {
       await db.createCollection('users');
       console.log('📦 Created collection: users');
     }
 
-    // Buat collection orders
     if (!collNames.includes('orders')) {
       await db.createCollection('orders');
       console.log('📦 Created collection: orders');
     }
 
-    // Buat collection stats
     if (!collNames.includes('stats')) {
       await db.createCollection('stats');
-      // Insert default stats
       const existingStats = await db.collection('stats').findOne({ _id: 'global' });
       if (!existingStats) {
         await db.collection('stats').insertOne({
@@ -131,8 +127,8 @@ async function initializeCollections() {
       console.log('📦 Created collection: stats');
     }
 
-    // Buat indexes
     await db.collection('users').createIndex({ userId: 1 }, { unique: true });
+    await db.collection('orders').createIndex({ orderId: 1 }, { unique: true });
     await db.collection('orders').createIndex({ userId: 1 });
     await db.collection('orders').createIndex({ status: 1 });
     await db.collection('orders').createIndex({ refundNextAt: 1 });
@@ -151,11 +147,9 @@ async function disconnectDB() {
   }
 }
 
-// ==================== DB OPERATIONS ====================
+// ==================== DB OPERATIONS (LEGACY) ====================
 
 async function loadDB() {
-  // Backwards compatibility - return object structure untuk legacy code
-  // In production, gunakan function-specific yang lebih efficient
   await connectDB();
 
   const users = await db.collection('users').find({}).toArray();
@@ -171,31 +165,125 @@ async function loadDB() {
   const ordersObj = {};
   orders.forEach(o => {
     const { _id, orderId, ...data } = o;
-    ordersObj[orderId] = data;
+    if (orderId) ordersObj[orderId] = data;
   });
 
   return {
     users: usersObj,
     orders: ordersObj,
-    stats: stats ? { 
-      totalSold: stats.totalSold, 
-      totalStars: stats.totalStars, 
-      totalProfit: stats.totalProfit 
+    stats: stats ? {
+      totalSold: stats.totalSold,
+      totalStars: stats.totalStars,
+      totalProfit: stats.totalProfit
     } : { totalSold: 0, totalStars: 0, totalProfit: 0 },
     migrated_captcha_v1: true,
   };
 }
 
 async function saveDB(_unused) {
-  // Signature maintained untuk compatibility, tapi no-op
-  // Save operations dilakukan immediately per-document dengan MongoDB
+  // No-op: save dilakukan langsung per-document
   return { ok: true };
 }
 
 async function reloadDB() {
-  // Reconnect to DB
   return loadDB();
 }
+
+// ==================== ORDER HELPERS (MongoDB) ====================
+
+async function createOrder(orderId, orderData) {
+  await connectDB();
+  await db.collection('orders').insertOne({
+    orderId,
+    ...orderData,
+    _createdAt: new Date(),
+  });
+}
+
+async function getOrder(orderId) {
+  await connectDB();
+  const o = await db.collection('orders').findOne({ orderId });
+  if (!o) return null;
+  const { _id, ...rest } = o;
+  return rest;
+}
+
+async function updateOrder(orderId, updates) {
+  await connectDB();
+  const res = await db.collection('orders').updateOne(
+    { orderId },
+    { $set: { ...updates, updatedAt: new Date() } }
+  );
+  return res.matchedCount > 0;
+}
+
+async function incrementStats(displayPrice, profit) {
+  await connectDB();
+  await db.collection('stats').updateOne(
+    { _id: 'global' },
+    {
+      $inc: { totalSold: 1, totalStars: displayPrice, totalProfit: profit },
+      $set: { updatedAt: new Date() },
+    }
+  );
+}
+
+async function incrementUserOrder(userId, giftId, displayPrice) {
+  await connectDB();
+  const uid = String(userId);
+  const now = Math.floor(Date.now() / 1000);
+
+  const existing = await db.collection('users').findOne({ userId: uid });
+
+  if (!existing) {
+    await db.collection('users').insertOne({
+      userId: uid,
+      username: null,
+      firstName: null,
+      firstSeen: now,
+      lastSeen: now,
+      totalOrders: 1,
+      totalSpent: displayPrice,
+      giftCount: { [giftId]: 1 },
+      verified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return;
+  }
+
+  await db.collection('users').updateOne(
+    { userId: uid },
+    {
+      $inc: {
+        totalOrders: 1,
+        totalSpent: displayPrice,
+        [`giftCount.${giftId}`]: 1,
+      },
+      $set: { lastSeen: now, updatedAt: new Date() },
+    }
+  );
+}
+
+async function getRecentOrders(userId, limit = 10) {
+  await connectDB();
+  const docs = await db.collection('orders')
+    .find({ userId: String(userId) })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .toArray();
+  return docs.map(({ _id, ...rest }) => rest);
+}
+
+async function getAllUserIds() {
+  await connectDB();
+  const docs = await db.collection('users')
+    .find({}, { projection: { userId: 1 } })
+    .toArray();
+  return docs.map(d => d.userId);
+}
+
+// ==================== USER HELPERS ====================
 
 async function trackUser(user) {
   await connectDB();
@@ -229,12 +317,7 @@ async function trackUser(user) {
           firstName: user.first_name || existingUser.firstName,
           updatedAt: new Date(),
         },
-        $setOnInsert: {
-          giftCount: {},
-          verified: false,
-        },
-      },
-      { upsert: true }
+      }
     );
   }
 }
@@ -245,17 +328,30 @@ async function isVerified(userId) {
   return !!(u && u.verified === true);
 }
 
+// FIX: upsert supaya kalau user doc belum ada, tetap dibuat
 async function markVerified(userId) {
   await connectDB();
+  const now = Math.floor(Date.now() / 1000);
   await db.collection('users').updateOne(
     { userId: String(userId) },
     {
       $set: {
         verified: true,
-        verifiedAt: Math.floor(Date.now() / 1000),
+        verifiedAt: now,
         updatedAt: new Date(),
       },
-    }
+      $setOnInsert: {
+        username: null,
+        firstName: null,
+        firstSeen: now,
+        lastSeen: now,
+        totalOrders: 0,
+        totalSpent: 0,
+        giftCount: {},
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true }
   );
 }
 
@@ -272,9 +368,9 @@ async function clearPendingOrders(userId) {
 async function getFavorites(userId, limit = 3) {
   await connectDB();
   const u = await db.collection('users').findOne({ userId: String(userId) });
-  
+
   if (!u || !u.giftCount) return [];
-  
+
   return Object.entries(u.giftCount)
     .sort((a, b) => b[1] - a[1])
     .map(([gid]) => gid)
@@ -303,11 +399,11 @@ async function resolveRecipient(ctx, rawInput) {
   if (input.startsWith('@')) {
     const uname = input.slice(1).toLowerCase();
     if (!uname) return { ok: false, reason: 'empty_username' };
-    
+
     const user = await db.collection('users').findOne({
       username: { $regex: `^${uname}$`, $options: 'i' },
     });
-    
+
     if (!user) return { ok: false, reason: 'username_not_in_db' };
     return {
       ok: true,
@@ -505,8 +601,15 @@ module.exports = {
   // catalog
   GIFTS, calcDisplayPrice, calcMarkup,
 
-  // db
-  loadDB, saveDB, reloadDB, trackUser, isVerified, markVerified,
+  // db (legacy)
+  loadDB, saveDB, reloadDB,
+
+  // order helpers (MongoDB direct)
+  createOrder, getOrder, updateOrder, incrementStats, incrementUserOrder,
+  getRecentOrders, getAllUserIds,
+
+  // user
+  trackUser, isVerified, markVerified,
 
   // helpers
   sendOrEdit, clearPendingOrders, getFavorites, refundStars,

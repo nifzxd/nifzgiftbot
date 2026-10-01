@@ -4,6 +4,12 @@ const { state, GIFTS, calcDisplayPrice } = S;
 
 async function showMainMenu(ctx) {
   const userId = ctx.from.id;
+
+  // FIX: reset semua state
+  state.deleteSession(userId);
+  state.awaitingBroadcast.delete(userId);
+  state.pendingBroadcast.delete(userId);
+
   const favIds = await S.getFavorites(userId);
   const name = ctx.from.first_name || 'Kak';
 
@@ -32,6 +38,7 @@ async function showGiftCatalog(ctx) {
   if (favIds.length > 0) {
     for (const gid of favIds) {
       const g = GIFTS[gid];
+      if (!g) continue;
       buttons.push([Markup.button.callback(`⭐ ${g.name} — ${calcDisplayPrice(g.price)}⭐`, `buy:${gid}`)]);
       shown.add(gid);
     }
@@ -71,10 +78,12 @@ async function showFavorites(ctx) {
     );
   }
 
-  const buttons = favIds.map(gid => {
-    const g = GIFTS[gid];
-    return [Markup.button.callback(`⭐ ${g.name} — ${calcDisplayPrice(g.price)}⭐`, `buy:${gid}`)];
-  });
+  const buttons = favIds
+    .filter(gid => GIFTS[gid])
+    .map(gid => {
+      const g = GIFTS[gid];
+      return [Markup.button.callback(`⭐ ${g.name} — ${calcDisplayPrice(g.price)}⭐`, `buy:${gid}`)];
+    });
   buttons.push([Markup.button.callback("🎁 Katalog Gift", "menu_katalog")]);
   buttons.push([Markup.button.callback("⬅️ Kembali", "menu_back")]);
 
@@ -85,9 +94,8 @@ async function showFavorites(ctx) {
 }
 
 function register(bot) {
-  // === /batal — escape hatch untuk semua flow ===
   bot.command('batal', async (ctx) => {
-    if (await S.clearPendingOrders(ctx.from.id) > 0) await S.saveDB();
+    await S.clearPendingOrders(ctx.from.id);
     state.deleteSession(ctx.from.id);
     state.awaitingBroadcast.delete(ctx.from.id);
     state.pendingBroadcast.delete(ctx.from.id);
@@ -112,14 +120,8 @@ function register(bot) {
 
   bot.action('menu_riwayat', async (ctx) => {
     await ctx.answerCbQuery();
-    const db = await S.loadDB();
-    const userId = String(ctx.from.id);
-
-    const userOrders = Object.entries(db.orders)
-      .filter(([_, o]) => String(o.userId) === userId)
-      .sort((a, b) => b[1].createdAt - a[1].createdAt)
-      .slice(0, 10);
-
+    const userId = ctx.from.id;
+    const userOrders = await S.getRecentOrders(userId, 10);
     const backBtn = [[Markup.button.callback("⬅️ Kembali", "menu_back")]];
 
     if (userOrders.length === 0) {
@@ -131,7 +133,7 @@ function register(bot) {
     }
 
     let msg = "📜 *Riwayat Order (10 terakhir)*\n\n";
-    for (const [orderId, o] of userOrders) {
+    for (const o of userOrders) {
       const icon =
         o.status === 'paid'     ? '✅' :
         o.status === 'failed'   ? '❌' :
@@ -144,7 +146,7 @@ function register(bot) {
         `${icon} *${o.giftName}* — ${o.displayPrice || o.price}⭐\n` +
         `   👤 ${o.recipientLabel}\n` +
         `   🗓️ ${date}\n` +
-        `   🆔 \`${orderId}\`\n\n`;
+        `   🆔 \`${o.orderId}\`\n\n`;
     }
 
     await S.sendOrEdit(ctx, msg, {

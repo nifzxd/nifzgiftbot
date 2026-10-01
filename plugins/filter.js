@@ -49,12 +49,11 @@ async function showCaptcha(ctx, errorMsg = null, keepWrongCount = false) {
     ? prev.captchaCooldownUntil : 0;
 
   const c = generateCaptcha();
-  
-  // FIX #1: Preserve existing session data instead of completely overwriting
-  const prevSession = state.getSession(userId);
+
+  // FIX: captcha pake flag terpisah, JANGAN nimpa `step`
   state.setSession(userId, {
-    ...prevSession,  // ← PRESERVE existing data (giftId, step, etc)
-    step: 'captcha',
+    ...prev,
+    captchaActive: true,
     captchaAnswer: c.answer,
     captchaExpiresAt: now + CAPTCHA_EXPIRE_SEC,
     captchaWrongCount: wrongCount,
@@ -88,8 +87,7 @@ async function showCaptcha(ctx, errorMsg = null, keepWrongCount = false) {
 function register(bot) {
   // === /start ===
   bot.start(async (ctx) => {
-    const db = await S.loadDB();
-    if (await S.clearPendingOrders(ctx.from.id) > 0) await S.saveDB();
+    await S.clearPendingOrders(ctx.from.id);
     state.deleteSession(ctx.from.id);
     state.awaitingBroadcast.delete(ctx.from.id);
     state.pendingBroadcast.delete(ctx.from.id);
@@ -108,8 +106,9 @@ function register(bot) {
     const s = state.getSession(userId);
     const now = Math.floor(Date.now() / 1000);
 
-    if (s.step !== 'captcha' || s.captchaAnswer === undefined) {
-      return ctx.answerCbQuery().catch(() => {});
+    // FIX: cek flag captcha, bukan `step`
+    if (!s.captchaActive || s.captchaAnswer === undefined) {
+      return ctx.answerCbQuery('❌ Sesi captcha tidak aktif').catch(() => {});
     }
     if (s.captchaCooldownUntil && now < s.captchaCooldownUntil) {
       const wait = s.captchaCooldownUntil - now;
@@ -117,12 +116,23 @@ function register(bot) {
     }
     if (s.captchaExpiresAt && now > s.captchaExpiresAt) {
       await ctx.answerCbQuery('⏰ Soal expired').catch(() => {});
+      const { captchaActive, captchaAnswer, captchaExpiresAt, captchaWrongCount, captchaCooldownUntil, ...rest } = s;
+      state.setSession(userId, rest);
       return showCaptcha(ctx, '⏰ *Waktu habis!* Ini soal baru:', false);
     }
 
     if (answer === s.captchaAnswer) {
       await ctx.answerCbQuery('✅ Benar!').catch(() => {});
       await S.markVerified(userId);
+
+      const { captchaActive, captchaAnswer, captchaExpiresAt, captchaWrongCount, captchaCooldownUntil, ...rest } = s;
+
+      // Kalau user lagi di tengah order flow, lanjutin
+      if (rest.step && ['await_recipient', 'await_text', 'ready', 'await_recipient_confirm'].includes(rest.step)) {
+        state.setSession(userId, rest);
+        return ctx.reply("✅ Verifikasi berhasil! Lanjutkan pesanan kamu ya.");
+      }
+
       state.deleteSession(userId);
       await S.logEvent(
         `✅ *User Terverifikasi*\n` +
@@ -135,10 +145,8 @@ function register(bot) {
     const wrongCount = (s.captchaWrongCount || 0) + 1;
     if (wrongCount >= CAPTCHA_MAX_WRONG) {
       state.setSession(userId, {
-        ...s,  // ← PRESERVE other data
-        step: 'captcha',
-        captchaAnswer: s.captchaAnswer,
-        captchaExpiresAt: s.captchaExpiresAt,
+        ...s,
+        captchaActive: true,
         captchaWrongCount: 0,
         captchaCooldownUntil: now + CAPTCHA_COOLDOWN_SEC,
       });
@@ -163,6 +171,10 @@ function register(bot) {
     const userId = ctx.from?.id;
     if (!userId) return next();
     if (state.isOwner(userId)) return next();
+
+    // ⭐ WHITELIST: payment update JANGAN di-block
+    if (ctx.updateType === 'pre_checkout_query') return next();
+    if (ctx.message?.successful_payment) return next();
 
     const txt = ctx.message?.text || '';
     if (txt.startsWith('/start')) return next();
