@@ -311,17 +311,19 @@ function register(bot) {
     const displayPrice = order.displayPrice ?? order.price;
     const profit       = displayPrice - costPrice;
 
-    let finalText = order.customText
-      ? `Dari ${order.senderName}: ${order.customText}`
-      : `Dari ${order.senderName}`;
-    finalText = finalText.slice(0, state.MAX_CUSTOM_TEXT_LEN);
+    // ⭐ text cuma dikirim kalau user nulis custom text.
+    // Kalau "Tanpa Teks" → parameter `text` gak dikirim sama sekali.
+    const sendGiftParams = {
+      user_id: order.recipientId,
+      gift_id: order.giftId,
+    };
+
+    if (order.customText) {
+      sendGiftParams.text = order.customText.slice(0, state.MAX_CUSTOM_TEXT_LEN);
+    }
 
     try {
-      await ctx.telegram.callApi('sendGift', {
-        user_id: order.recipientId,
-        gift_id: order.giftId,
-        text: finalText,
-      });
+      await ctx.telegram.callApi('sendGift', sendGiftParams);
 
       const paidAt = Math.floor(Date.now() / 1000);
       await S.updateOrder(orderId, {
