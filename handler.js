@@ -9,6 +9,8 @@ S.state.bot = bot;
 S.state.applyConfig(config);
 
 // --- register plugins (URUTAN PENTING) ---
+// ⚠️ filter HARUS di awal — karena dia pake bot.use() middleware gate
+// ⚠️ filter.js sudah WHITELIST pre_checkout_query & successful_payment
 const plugins = [
   require('./plugins/filter'),   // /start + captcha + middleware gate
   require('./plugins/menu'),     // menu user
@@ -29,13 +31,12 @@ bot.on('text', async (ctx) => {
     `⚠️ Unhandled text (user=${ctx.from.id}, step=${s.step || 'none'}): ${text.slice(0, 60)}`
   );
 
-  if (s.step) {
-    await ctx.reply(
-      "❓ Aku gak ngerti maksudmu.\n\n" +
-      "Ketik /batal untuk membatalkan sesi, atau /start untuk kembali ke menu.",
-      Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
-    ).catch(() => {});
-  }
+  await ctx.reply(
+    s.step
+      ? "❓ Aku gak ngerti maksudmu.\n\nKetik /batal untuk membatalkan sesi, atau /start untuk kembali ke menu."
+      : "❓ Aku gak ngerti maksudmu.\n\nKetik /start untuk membuka menu.",
+    Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+  ).catch(() => {});
 });
 
 // --- start refund retry worker ---
@@ -53,13 +54,22 @@ bot.catch((err, ctx) => {
   } catch {}
 });
 
+// Rate limit log biar gak infinite loop
+let _lastRejLog = 0;
 process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Unhandled rejection:', reason);
+  const now = Date.now();
+  if (now - _lastRejLog < 5_000) return;
+  _lastRejLog = now;
   S.logEvent(`⚠️ *Unhandled Rejection*\n\`${String(reason).slice(0, 200)}\``).catch(() => {});
 });
 
+let _lastExcLog = 0;
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught exception:', err);
+  const now = Date.now();
+  if (now - _lastExcLog < 5_000) return;
+  _lastExcLog = now;
   S.logEvent(`💥 *Uncaught Exception*\n\`${String(err?.message || err).slice(0, 200)}\``).catch(() => {});
 });
 
@@ -102,7 +112,8 @@ const heartbeat = setInterval(async () => {
 async function shutdown(sig) {
   console.log(`\n🛑 ${sig} — shutting down...`);
   clearInterval(heartbeat);
-  try { await bot.stop(sig); } catch {}
+  try { await bot.stop(sig); } catch (e) { console.error('bot.stop error:', e.message); }
+  try { await S.disconnectDB(); } catch (e) { console.error('disconnectDB error:', e.message); }
   process.exit(0);
 }
 process.once('SIGINT',  () => shutdown('SIGINT'));
