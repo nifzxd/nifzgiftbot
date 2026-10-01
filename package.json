@@ -1,0 +1,31 @@
+{
+  "name": "telegram-gift-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram untuk jual-beli gift menggunakan Telegram Stars (XTR) dengan markup, auto-refund, dan broadcast.",
+  "main": "handler.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node handler.js",
+    "dev": "node --watch handler.js"
+  },
+  "dependencies": {
+    "mongodb": "^7.6.0",
+    "telegraf": "^4.16.3"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "telegraf",
+    "gift",
+    "stars",
+    "xtr",
+    "telegram-stars",
+    "mongodb"
+  ],
+  "author": "",
+  "license": "MIT",
+  "private": true
+}
