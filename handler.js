@@ -33,9 +33,9 @@ bot.on('text', async (ctx) => {
 
   await ctx.reply(
     s.step
-      ? "❓ Aku gak ngerti maksudmu.\n\nKetik /batal untuk membatalkan sesi, atau /start untuk kembali ke menu."
-      : "❓ Aku gak ngerti maksudmu.\n\nKetik /start untuk membuka menu.",
-    Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+      ? "❓ I don't understand that.\n\nType /batal to cancel the session, or /start to return to the menu."
+      : "❓ I don't understand that.\n\nType /start to open the menu.",
+    Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]])
   ).catch(() => {});
 });
 
@@ -50,7 +50,7 @@ bot.catch((err, ctx) => {
     `❌ *Bot Error*\n👤 \`${userId}\`\n❗ \`${String(err?.message || err).slice(0, 200)}\``
   ).catch(() => {});
   try {
-    ctx?.reply?.('❌ Terjadi kesalahan. Coba lagi sebentar lagi.').catch(() => {});
+    ctx?.reply?.('❌ An error occurred. Please try again in a moment.').catch(() => {});
   } catch {}
 });
 
