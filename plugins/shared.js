@@ -43,17 +43,17 @@ state.deleteSession = (id) => state.sessions.delete(id);
 
 // ==================== CATALOG ====================
 const GIFTS = {
-  "5170145012310081615": { name: "Hati 💖",            price: 15  },
-  "5170233102089322756": { name: "Boneka Beruang 🧸",  price: 15  },
-  "5170250947678437525": { name: "Kotak Hadiah 🎁",    price: 25  },
-  "5168103777563050263": { name: "Mawar 🌹",           price: 25  },
-  "5170144170496491616": { name: "Kue Ulang Tahun 🎂", price: 50  },
-  "5170314324215857265": { name: "Buket Bunga 💐",     price: 50  },
-  "5170564780938756245": { name: "Roket 🚀",           price: 50  },
-  "5168043875654172773": { name: "Piala 🏆",           price: 100 },
-  "5170690322832818290": { name: "Cincin 💍",          price: 100 },
-  "5170521118301225164": { name: "Berlian 💎",         price: 100 },
-  "6028601630662853006": { name: "Sampanye 🍾",        price: 50  },
+  "5170145012310081615": { name: "Heart 💖",           price: 15  },
+  "5170233102089322756": { name: "Teddy Bear 🧸",      price: 15  },
+  "5170250947678437525": { name: "Gift Box 🎁",        price: 25  },
+  "5168103777563050263": { name: "Rose 🌹",            price: 25  },
+  "5170144170496491616": { name: "Birthday Cake 🎂",   price: 50  },
+  "5170314324215857265": { name: "Flower Bouquet 💐",  price: 50  },
+  "5170564780938756245": { name: "Rocket 🚀",          price: 50  },
+  "5168043875654172773": { name: "Trophy 🏆",          price: 100 },
+  "5170690322832818290": { name: "Ring 💍",            price: 100 },
+  "5170521118301225164": { name: "Diamond 💎",         price: 100 },
+  "6028601630662853006": { name: "Champagne 🍾",       price: 50  },
 };
 
 function calcDisplayPrice(base) {
@@ -437,15 +437,15 @@ async function resolveRecipient(ctx, rawInput) {
 function recipientErrorMessage(res) {
   switch (res.reason) {
     case 'empty_username':
-      return "❌ Username kosong. Contoh: `@username`";
+      return "❌ Username is empty. Example: `@username`";
     case 'username_not_in_db':
-      return "❌ *Username tidak ditemukan.*\n\nPenerima *harus pernah /start* bot ini dulu.\nMinta dia kirim /start, lalu coba lagi.";
+      return "❌ *Username not found.*\n\nThe recipient *must have /start* this bot first.\nAsk them to send /start, then try again.";
     case 'not_private':
-      return "❌ Penerima harus user pribadi, bukan grup/channel.";
+      return "❌ The recipient must be a private user, not a group/channel.";
     case 'id_unreachable':
-      return "❌ ID tidak ditemukan.\nPastikan ID benar dan penerima sudah pernah /start bot ini.";
+      return "❌ ID not found.\nMake sure the ID is correct and the recipient has /start this bot before.";
     default:
-      return "❌ Input tidak valid.\n\nKirim *username* (contoh: `@username`) atau *ID numerik* (contoh: `123456789`).";
+      return "❌ Invalid input.\n\nSend the *username* (example: `@username`) or the *numeric ID* (example: `123456789`).";
   }
 }
 
@@ -515,7 +515,7 @@ async function processRefunds() {
         try {
           await state.bot.telegram.sendMessage(
             state.OWNER_ID,
-            `💸 *Refund Retry Berhasil*\n🆔 \`${order.orderId || order._id}\`\n💸 \`${order.chargeId}\``,
+            `💸 *Refund Retry Successful*\n🆔 \`${order.orderId || order._id}\`\n💸 \`${order.chargeId}\``,
             { parse_mode: 'Markdown' }
           );
         } catch {}
@@ -536,7 +536,7 @@ async function processRefunds() {
         );
 
         await logEvent(
-          `🚨 *Refund GAGAL ${REFUND_MAX_ATTEMPTS}x — BUTUH MANUAL*\n` +
+          `🚨 *Refund FAILED ${REFUND_MAX_ATTEMPTS}x — MANUAL ACTION NEEDED*\n` +
           `🆔 \`${order.orderId || order._id}\`\n👤 \`${order.userId}\`\n` +
           `💸 \`${order.chargeId}\`\n❗ ${res.error}`
         );
@@ -545,7 +545,7 @@ async function processRefunds() {
           try {
             await state.bot.telegram.sendMessage(
               state.OWNER_ID,
-              `🚨 *Refund Exhausted — Aksi Manual*\n🆔 \`${order.orderId || order._id}\`\n💸 \`${order.chargeId}\``,
+              `🚨 *Refund Exhausted — Manual Action*\n🆔 \`${order.orderId || order._id}\`\n💸 \`${order.chargeId}\``,
               { parse_mode: 'Markdown' }
             );
           } catch {}

@@ -7,10 +7,10 @@ const { state, GIFTS, calcDisplayPrice, calcMarkup, CONFIG_FILE } = S;
 // ==================== CONFIG SCHEMA ====================
 const CONFIG_SCHEMA = {
   OWNER_ID:             { label: 'Owner ID',               type: 'number'          },
-  MARKUP_FLAT:          { label: 'Markup Flat (⭐)',       type: 'number'          },
-  MARKUP_PERCENT:       { label: 'Markup Persen (%)',      type: 'number'          },
+  MARKUP_FLAT:          { label: 'Flat Markup (⭐)',       type: 'number'          },
+  MARKUP_PERCENT:       { label: 'Markup Percent (%)',     type: 'number'          },
   LOG_CHANNEL_ID:       { label: 'Log Channel ID',         type: 'nullable_number' },
-  INVOICE_COOLDOWN_SEC: { label: 'Invoice Cooldown (dtk)', type: 'number'          },
+  INVOICE_COOLDOWN_SEC: { label: 'Invoice Cooldown (sec)', type: 'number'          },
   MAX_CUSTOM_TEXT_LEN:  { label: 'Max Custom Text',        type: 'number'          },
   BROADCAST_DELAY_MS:   { label: 'Broadcast Delay (ms)',   type: 'number'          },
 };
@@ -64,14 +64,14 @@ async function showOwnerPanel(ctx) {
   state.awaitingBroadcast.delete(userId);
   state.pendingBroadcast.delete(userId);
 
-  await S.sendOrEdit(ctx, "👑 *Panel Owner*\n\nPilih menu:", {
+  await S.sendOrEdit(ctx, "👑 *Owner Panel*\n\nChoose a menu:", {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
-      [Markup.button.callback("📊 Statistik",   "owner_stats")],
-      [Markup.button.callback("🎁 Daftar Gift", "owner_listgift")],
+      [Markup.button.callback("📊 Statistics",  "owner_stats")],
+      [Markup.button.callback("🎁 Gift List",   "owner_listgift")],
       [Markup.button.callback("⚙️ Edit Config", "owner_config")],
       [Markup.button.callback("📣 Broadcast",   "owner_broadcast")],
-      [Markup.button.callback("🏠 Menu User",   "menu_back")],
+      [Markup.button.callback("🏠 User Menu",   "menu_back")],
     ]),
   });
 }
@@ -84,11 +84,11 @@ async function showConfigMenu(ctx) {
     if (display.length > 18) display = display.slice(0, 15) + '…';
     buttons.push([Markup.button.callback(`${schema.label}: ${display}`, `cfg_edit:${key}`)]);
   }
-  buttons.push([Markup.button.callback("⬅️ Kembali", "menu_owner")]);
+  buttons.push([Markup.button.callback("⬅️ Back", "menu_owner")]);
 
   await S.sendOrEdit(
     ctx,
-    "⚙️ *Edit Config*\n\nPilih field yang ingin diubah.",
+    "⚙️ *Edit Config*\n\nChoose the field you want to change.",
     { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
   );
 }
@@ -96,19 +96,19 @@ async function showConfigMenu(ctx) {
 // ==================== REGISTER ====================
 function register(bot) {
   bot.command('owner', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.reply("❌ Command ini hanya untuk owner.");
+    if (!state.isOwner(ctx.from.id)) return ctx.reply("❌ This command is for the owner only.");
     return showOwnerPanel(ctx);
   });
 
   bot.action('menu_owner', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
     return showOwnerPanel(ctx);
   });
 
   // ---- Stats ----
   bot.action('owner_stats', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
 
     const db = await S.loadDB();
@@ -122,56 +122,56 @@ function register(bot) {
 
     await S.sendOrEdit(
       ctx,
-      `📊 *Statistik Bot*\n\n` +
-      `👥 Total User: ${users}\n` +
-      `✅ Terverifikasi: ${verifiedCount}\n` +
-      `🔒 Belum Verif: ${users - verifiedCount}\n\n` +
-      `📦 *Order:*\n✅ Sukses: ${paid}\n💸 Refunded: ${refunded}\n❌ Failed: ${failed}\n⏳ Pending: ${pending}\n\n` +
-      `⭐ Total Stars Masuk: ${db.stats.totalStars}\n💰 Total Profit: ${db.stats.totalProfit || 0}⭐\n\n` +
-      `⚙️ _Markup aktif: ${state.MARKUP_FLAT}⭐ flat + ${state.MARKUP_PERCENT}%_`,
+      `📊 *Bot Statistics*\n\n` +
+      `👥 Total Users: ${users}\n` +
+      `✅ Verified: ${verifiedCount}\n` +
+      `🔒 Unverified: ${users - verifiedCount}\n\n` +
+      `📦 *Orders:*\n✅ Success: ${paid}\n💸 Refunded: ${refunded}\n❌ Failed: ${failed}\n⏳ Pending: ${pending}\n\n` +
+      `⭐ Total Stars Received: ${db.stats.totalStars}\n💰 Total Profit: ${db.stats.totalProfit || 0}⭐\n\n` +
+      `⚙️ _Active markup: ${state.MARKUP_FLAT}⭐ flat + ${state.MARKUP_PERCENT}%_`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Kembali", "menu_owner")]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "menu_owner")]]),
       }
     );
   });
 
   // ---- List gift ----
   bot.action('owner_listgift', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
 
-    let msg = "📋 *Daftar Gift*\n\n";
+    let msg = "📋 *Gift List*\n\n";
     for (const [id, g] of Object.entries(GIFTS)) {
       const display = calcDisplayPrice(g.price);
       const markup = calcMarkup(g.price);
-      msg += `• ${g.name}\n   cost: ${g.price}⭐ → jual: ${display}⭐ (profit ${markup}⭐)\n   \`${id}\`\n\n`;
+      msg += `• ${g.name}\n   cost: ${g.price}⭐ → sell: ${display}⭐ (profit ${markup}⭐)\n   \`${id}\`\n\n`;
     }
 
     await S.sendOrEdit(ctx, msg, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Kembali", "menu_owner")]]),
+      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "menu_owner")]]),
     });
   });
 
   // ---- Config editor ----
   bot.action('owner_config', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
     return showConfigMenu(ctx);
   });
 
   bot.action('menu_config', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
     return showConfigMenu(ctx);
   });
 
   bot.action(/^cfg_edit:(.+)$/, async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     const key = ctx.match[1];
     const schema = CONFIG_SCHEMA[key];
-    if (!schema) return ctx.answerCbQuery("❌ Field tidak ditemukan");
+    if (!schema) return ctx.answerCbQuery("❌ Field not found");
 
     await ctx.answerCbQuery();
     state.setSession(ctx.from.id, { step: 'edit_config', configKey: key });
@@ -179,57 +179,57 @@ function register(bot) {
     const currentVal = config[key];
     const shown = currentVal === null ? 'null' : String(currentVal);
     const typeHint =
-      schema.type === 'nullable_number' ? 'angka atau `null` untuk kosong'
-      : schema.type === 'number'        ? 'angka'
-      : 'teks';
+      schema.type === 'nullable_number' ? 'a number, or `null` for empty'
+      : schema.type === 'number'        ? 'a number'
+      : 'text';
 
     await S.sendOrEdit(
       ctx,
       `⚙️ *Edit Config: ${schema.label}*\n\n` +
-      `Nilai saat ini: \`${shown}\`\n` +
-      `Tipe: ${typeHint}\n` +
-      `\nKirim nilai baru:`,
+      `Current value: \`${shown}\`\n` +
+      `Type: ${typeHint}\n` +
+      `\nSend the new value:`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback("❌ Batal", "cfg_cancel")]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback("❌ Cancel", "cfg_cancel")]]),
       }
     );
   });
 
   bot.action('cfg_cancel', async (ctx) => {
     if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery();
-    await ctx.answerCbQuery("Dibatalkan");
+    await ctx.answerCbQuery("Canceled");
     state.deleteSession(ctx.from.id);
     return showConfigMenu(ctx);
   });
 
   // ---- Broadcast ----
   bot.action('owner_broadcast', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("❌ Not the owner");
     await ctx.answerCbQuery();
     state.awaitingBroadcast.add(ctx.from.id);
     state.pendingBroadcast.delete(ctx.from.id);
 
     await S.sendOrEdit(
       ctx,
-      "📣 *Broadcast*\n\nKirim pesan yang ingin kamu broadcast (bisa multi-baris).",
+      "📣 *Broadcast*\n\nSend the message you want to broadcast (multi-line is fine).",
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback("❌ Batal", "bc_cancel")]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback("❌ Cancel", "bc_cancel")]]),
       }
     );
   });
 
   bot.action('bc_send', async (ctx) => {
-    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("Bukan owner");
+    if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery("Not the owner");
     const text = state.pendingBroadcast.get(ctx.from.id);
-    if (!text) return ctx.answerCbQuery("Tidak ada broadcast pending");
+    if (!text) return ctx.answerCbQuery("No pending broadcast");
 
     state.pendingBroadcast.delete(ctx.from.id);
-    await ctx.answerCbQuery("Mengirim...");
+    await ctx.answerCbQuery("Sending...");
 
     const ids = await S.getAllUserIds();
-    await S.sendOrEdit(ctx, `📣 Mengirim ke ${ids.length} user...`);
+    await S.sendOrEdit(ctx, `📣 Sending to ${ids.length} users...`);
 
     let ok = 0, fail = 0;
     for (const id of ids) {
@@ -240,10 +240,10 @@ function register(bot) {
 
     await S.sendOrEdit(
       ctx,
-      `✅ *Broadcast Selesai*\n\nTotal: ${ids.length}\n✅ Sukses: ${ok}\n❌ Gagal: ${fail}`,
+      `✅ *Broadcast Complete*\n\nTotal: ${ids.length}\n✅ Success: ${ok}\n❌ Failed: ${fail}`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Kembali", "menu_owner")]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "menu_owner")]]),
       }
     );
   });
@@ -252,9 +252,9 @@ function register(bot) {
     if (!state.isOwner(ctx.from.id)) return ctx.answerCbQuery();
     state.pendingBroadcast.delete(ctx.from.id);
     state.awaitingBroadcast.delete(ctx.from.id);
-    await ctx.answerCbQuery("Dibatalkan");
-    await S.sendOrEdit(ctx, "❌ Broadcast dibatalkan.", {
-      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Kembali", "menu_owner")]]),
+    await ctx.answerCbQuery("Canceled");
+    await S.sendOrEdit(ctx, "❌ Broadcast canceled.", {
+      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "menu_owner")]]),
     });
   });
 
@@ -275,16 +275,16 @@ function register(bot) {
 
       const key = s.configKey;
       const schema = CONFIG_SCHEMA[key];
-      if (!schema) { state.deleteSession(userId); return ctx.reply("❌ Field tidak valid."); }
+      if (!schema) { state.deleteSession(userId); return ctx.reply("❌ Invalid field."); }
 
       const parsed = parseConfigValue(schema.type, text);
       if (!parsed.ok) {
         const hint =
-          parsed.reason === 'number' ? 'Harus berupa angka.'
-          : parsed.reason === 'empty' ? 'Tidak boleh kosong.'
-          : 'Format tidak valid.';
-        return ctx.reply(`❌ ${hint}\n\nCoba kirim lagi, atau tekan Batal.`, {
-          ...Markup.inlineKeyboard([[Markup.button.callback("❌ Batal", "cfg_cancel")]]),
+          parsed.reason === 'number' ? 'Must be a number.'
+          : parsed.reason === 'empty' ? 'Cannot be empty.'
+          : 'Invalid format.';
+        return ctx.reply(`❌ ${hint}\n\nTry sending again, or press Cancel.`, {
+          ...Markup.inlineKeyboard([[Markup.button.callback("❌ Cancel", "cfg_cancel")]]),
         });
       }
 
@@ -299,16 +299,16 @@ function register(bot) {
       const shownNew = parsed.value === null ? 'null' : String(parsed.value);
 
       const reply =
-        `✅ *Config Diperbarui*\n\n🔑 Key: \`${key}\`\n📤 Lama: \`${shownOld}\`\n📥 Baru: \`${shownNew}\`` +
-        `\n\n✨ Berlaku langsung.`;
+        `✅ *Config Updated*\n\n🔑 Key: \`${key}\`\n📤 Old: \`${shownOld}\`\n📥 New: \`${shownNew}\`` +
+        `\n\n✨ Applied immediately.`;
 
-      await S.logEvent(`⚙️ *Config diubah*\n🔑 \`${key}\`\n📤 \`${shownOld}\` → 📥 \`${shownNew}\``);
+      await S.logEvent(`⚙️ *Config changed*\n🔑 \`${key}\`\n📤 \`${shownOld}\` → 📥 \`${shownNew}\``);
 
       return S.sendOrEdit(ctx, reply, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback("⚙️ Edit Lagi", "menu_config")],
-          [Markup.button.callback("👑 Panel Owner", "menu_owner")],
+          [Markup.button.callback("⚙️ Edit Again", "menu_config")],
+          [Markup.button.callback("👑 Owner Panel", "menu_owner")],
         ]),
       });
     }
@@ -320,13 +320,13 @@ function register(bot) {
       const total = (await S.getAllUserIds()).length;
       const safeText = text.replace(/[_*`\[]/g, (m) => '\\' + m);
       await ctx.reply(
-        `📣 *Preview Broadcast*\n\n──────────────\n${safeText}\n──────────────\n\n` +
-        `👥 Akan dikirim ke *${total}* user.\nLanjut?`,
+        `📣 *Broadcast Preview*\n\n──────────────\n${safeText}\n──────────────\n\n` +
+        `👥 Will be sent to *${total}* users.\nContinue?`,
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback("✅ Kirim", "bc_send"),
-             Markup.button.callback("❌ Batal", "bc_cancel")],
+            [Markup.button.callback("✅ Send", "bc_send"),
+             Markup.button.callback("❌ Cancel", "bc_cancel")],
           ]),
         }
       );

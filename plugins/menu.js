@@ -11,17 +11,17 @@ async function showMainMenu(ctx) {
   state.pendingBroadcast.delete(userId);
 
   const favIds = await S.getFavorites(userId);
-  const name = ctx.from.first_name || 'Kak';
+  const name = ctx.from.first_name || 'There';
 
-  const buttons = [[Markup.button.callback("🎁 Katalog Gift", "menu_katalog")]];
-  if (favIds.length > 0) buttons.push([Markup.button.callback("⭐ Favorit Kamu", "menu_favorit")]);
-  buttons.push([Markup.button.callback("📜 Riwayat Order", "menu_riwayat")]);
+  const buttons = [[Markup.button.callback("🎁 Gift Catalog", "menu_katalog")]];
+  if (favIds.length > 0) buttons.push([Markup.button.callback("⭐ Your Favorites", "menu_favorit")]);
+  buttons.push([Markup.button.callback("📜 Order History", "menu_riwayat")]);
 
   const text =
-    `👋 Halo, *${name}*!\n\n` +
-    `Selamat datang di *Nifz Gift* 🎁\n\n` +
-    `Di sini kamu bisa mengirim berbagai gift menarik ke teman-temanmu.\n\n` +
-    `Pilih menu di bawah untuk mulai:`;
+    `👋 Hello, *${name}*!\n\n` +
+    `Welcome to *Nifz Gift* 🎁\n\n` +
+    `Here you can send various exciting gifts to your friends.\n\n` +
+    `Choose a menu below to get started:`;
 
   await S.sendOrEdit(ctx, text, {
     parse_mode: 'Markdown',
@@ -49,10 +49,10 @@ async function showGiftCatalog(ctx) {
     if (shown.has(id)) continue;
     buttons.push([Markup.button.callback(`${g.name} — ${calcDisplayPrice(g.price)}⭐`, `buy:${id}`)]);
   }
-  buttons.push([Markup.button.callback("⬅️ Kembali", "menu_back")]);
+  buttons.push([Markup.button.callback("⬅️ Back", "menu_back")]);
 
-  let text = "🎁 *Katalog Gift*\n\nPilih gift yang ingin kamu kirim:";
-  if (favIds.length > 0) text += "\n\n⭐ = favorit kamu";
+  let text = "🎁 *Gift Catalog*\n\nChoose the gift you want to send:";
+  if (favIds.length > 0) text += "\n\n⭐ = your favorites";
 
   await S.sendOrEdit(ctx, text, {
     parse_mode: 'Markdown',
@@ -67,12 +67,12 @@ async function showFavorites(ctx) {
   if (favIds.length === 0) {
     return S.sendOrEdit(
       ctx,
-      "⭐ *Favorit Kamu*\n\nKamu belum punya gift favorit.\nYuk beli dulu biar muncul di sini! 🎁",
+      "⭐ *Your Favorites*\n\nYou don't have any favorite gifts yet.\nBuy one first so it shows up here! 🎁",
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback("🎁 Katalog Gift", "menu_katalog")],
-          [Markup.button.callback("⬅️ Kembali", "menu_back")],
+          [Markup.button.callback("🎁 Gift Catalog", "menu_katalog")],
+          [Markup.button.callback("⬅️ Back", "menu_back")],
         ]),
       }
     );
@@ -84,10 +84,10 @@ async function showFavorites(ctx) {
       const g = GIFTS[gid];
       return [Markup.button.callback(`⭐ ${g.name} — ${calcDisplayPrice(g.price)}⭐`, `buy:${gid}`)];
     });
-  buttons.push([Markup.button.callback("🎁 Katalog Gift", "menu_katalog")]);
-  buttons.push([Markup.button.callback("⬅️ Kembali", "menu_back")]);
+  buttons.push([Markup.button.callback("🎁 Gift Catalog", "menu_katalog")]);
+  buttons.push([Markup.button.callback("⬅️ Back", "menu_back")]);
 
-  await S.sendOrEdit(ctx, "⭐ *Favorit Kamu*\n\nGift yang paling sering kamu beli:", {
+  await S.sendOrEdit(ctx, "⭐ *Your Favorites*\n\nGifts you buy the most:", {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard(buttons),
   });
@@ -99,7 +99,7 @@ function register(bot) {
     state.deleteSession(ctx.from.id);
     state.awaitingBroadcast.delete(ctx.from.id);
     state.pendingBroadcast.delete(ctx.from.id);
-    await ctx.reply('✅ Sesi dibatalkan. Ketik /start untuk kembali ke menu.');
+    await ctx.reply('✅ Session canceled. Type /start to return to the menu.');
   });
 
   bot.action('menu_katalog', async (ctx) => {
@@ -122,26 +122,31 @@ function register(bot) {
     await ctx.answerCbQuery();
     const userId = ctx.from.id;
     const userOrders = await S.getRecentOrders(userId, 10);
-    const backBtn = [[Markup.button.callback("⬅️ Kembali", "menu_back")]];
+    const backBtn = [[Markup.button.callback("⬅️ Back", "menu_back")]];
 
     if (userOrders.length === 0) {
       return S.sendOrEdit(
         ctx,
-        "📭 *Riwayat Order*\n\nKamu belum pernah membeli gift.\nYuk pilih gift dulu! 🎁",
+        "📭 *Order History*\n\nYou haven't bought any gifts yet.\nGo pick a gift first! 🎁",
         { parse_mode: 'Markdown', ...Markup.inlineKeyboard(backBtn) }
       );
     }
 
-    let msg = "📜 *Riwayat Order (10 terakhir)*\n\n";
+    // Formatter dibuat sekali, dipakai untuk semua order
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'UTC',
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    });
+
+    let msg = "📜 *Order History (last 10)*\n\n";
     for (const o of userOrders) {
       const icon =
         o.status === 'paid'     ? '✅' :
         o.status === 'failed'   ? '❌' :
         o.status === 'refunded' ? '💸' : '⏳';
-      const date = new Date(o.createdAt * 1000).toLocaleString('id-ID', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      });
+      const date = fmt.format(new Date(o.createdAt * 1000)) + ' UTC';
       msg +=
         `${icon} *${o.giftName}* — ${o.displayPrice || o.price}⭐\n` +
         `   👤 ${o.recipientLabel}\n` +

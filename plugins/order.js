@@ -8,14 +8,14 @@ const PAYLOAD_PREFIX = 'order:';
 async function askCustomText(ctx, s) {
   await S.sendOrEdit(
     ctx,
-    `👤 Penerima: *${s.recipientLabel}*\n\n` +
-    `✍️ Kirim *teks* yang ingin disertakan (maks ${state.MAX_CUSTOM_TEXT_LEN} karakter).\n\n` +
-    `Atau klik *Tanpa Teks* kalau tidak mau pakai pesan kustom.`,
+    `👤 Recipient: *${s.recipientLabel}*\n\n` +
+    `✍️ Send the *text* you want to include (max ${state.MAX_CUSTOM_TEXT_LEN} characters).\n\n` +
+    `Or click *No Text* if you don't want a custom message.`,
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback("⏭️ Tanpa Teks", "buy_skip")],
-        [Markup.button.callback("❌ Batal", "buy_cancel")],
+        [Markup.button.callback("⏭️ No Text", "buy_skip")],
+        [Markup.button.callback("❌ Cancel", "buy_cancel")],
       ]),
     }
   );
@@ -23,7 +23,7 @@ async function askCustomText(ctx, s) {
 
 async function sendInvoice(ctx, s) {
   const gift = GIFTS[s.giftId];
-  if (!gift) return ctx.reply("❌ Gift tidak ditemukan.");
+  if (!gift) return ctx.reply("❌ Gift not found.");
 
   const userId = ctx.from.id;
   const now = Math.floor(Date.now() / 1000);
@@ -32,7 +32,7 @@ async function sendInvoice(ctx, s) {
   if (now - last < state.INVOICE_COOLDOWN_SEC) {
     const wait = state.INVOICE_COOLDOWN_SEC - (now - last);
     state.deleteSession(userId);
-    return ctx.reply(`⏳ Sabar ya, tunggu ${wait} detik lagi sebelum buat order baru.`);
+    return ctx.reply(`⏳ Please wait ${wait} more seconds before creating a new order.`);
   }
   state.lastInvoiceAt.set(userId, now);
 
@@ -63,22 +63,22 @@ async function sendInvoice(ctx, s) {
   } catch (err) {
     console.error('❌ Gagal simpan order ke DB:', err.message);
     state.deleteSession(userId);
-    return ctx.reply("❌ Gagal membuat order. Coba lagi sebentar lagi.");
+    return ctx.reply("❌ Failed to create order. Please try again in a moment.");
   }
 
   await ctx.reply(
-    `📋 *Ringkasan Pesanan*\n\n` +
+    `📋 *Order Summary*\n\n` +
     `🎁 Gift: ${gift.name}\n` +
-    `👤 Penerima: ${s.recipientLabel}\n` +
-    `✍️ Teks: ${s.customText || '(kosong)'}\n` +
-    `💰 Harga: ${displayPrice}⭐`,
+    `👤 Recipient: ${s.recipientLabel}\n` +
+    `✍️ Text: ${s.customText || '(empty)'}\n` +
+    `💰 Price: ${displayPrice}⭐`,
     { parse_mode: 'Markdown' }
   );
 
   try {
     await ctx.replyWithInvoice({
       title: gift.name,
-      description: `Kirim ${gift.name} ke ${s.recipientLabel}`,
+      description: `Send ${gift.name} to ${s.recipientLabel}`,
       payload: `${PAYLOAD_PREFIX}${orderId}`,
       provider_token: '',
       currency: 'XTR',
@@ -88,12 +88,12 @@ async function sendInvoice(ctx, s) {
     console.error('❌ Gagal kirim invoice:', err.message);
     await S.updateOrder(orderId, { status: 'failed', error: err.message });
     state.deleteSession(userId);
-    return ctx.reply("❌ Gagal membuat invoice. Coba lagi.");
+    return ctx.reply("❌ Failed to create invoice. Please try again.");
   }
 
   await ctx.reply(
-    "💳 Selesaikan pembayaran lewat tombol di atas.",
-    Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+    "💳 Complete the payment using the button above.",
+    Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]])
   );
 }
 
@@ -101,7 +101,7 @@ function register(bot) {
   bot.action(/^buy:(.+)$/, async (ctx) => {
     const giftId = ctx.match[1];
     const gift = GIFTS[giftId];
-    if (!gift) return ctx.answerCbQuery("❌ Gift tidak ditemukan");
+    if (!gift) return ctx.answerCbQuery("❌ Gift not found");
 
     state.setSession(ctx.from.id, { step: 'await_recipient', giftId });
     await ctx.answerCbQuery();
@@ -109,13 +109,13 @@ function register(bot) {
     await S.sendOrEdit(
       ctx,
       `🎁 Gift: *${gift.name}* (${calcDisplayPrice(gift.price)}⭐)\n\n` +
-      `Kirim *username* (contoh: \`@username\`) atau *ID akun* penerima.\n\n` +
-      `⚠️ Penerima *harus pernah /start* bot ini dulu.`,
+      `Send the recipient's *username* (example: \`@username\`) or *account ID*.\n\n` +
+      `⚠️ The recipient *must have /start* this bot first.`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback("👤 Kirim ke Diri Sendiri", "buy_self")],
-          [Markup.button.callback("❌ Batal", "buy_cancel")],
+          [Markup.button.callback("👤 Send to Myself", "buy_self")],
+          [Markup.button.callback("❌ Cancel", "buy_cancel")],
         ]),
       }
     );
@@ -128,8 +128,8 @@ function register(bot) {
 
     s.recipientId = userId;
     s.recipientLabel = ctx.from.username
-      ? `@${ctx.from.username} (diri sendiri)`
-      : `${ctx.from.first_name} (diri sendiri)`;
+      ? `@${ctx.from.username} (yourself)`
+      : `${ctx.from.first_name} (yourself)`;
     s.step = 'await_text';
     state.setSession(userId, s);
 
@@ -153,7 +153,7 @@ function register(bot) {
   bot.action('buy_cancel', async (ctx) => {
     await S.clearPendingOrders(ctx.from.id);
     state.deleteSession(ctx.from.id);
-    await ctx.answerCbQuery("Dibatalkan");
+    await ctx.answerCbQuery("Canceled");
     return require('./menu').showMainMenu(ctx);
   });
 
@@ -182,8 +182,8 @@ function register(bot) {
         await ctx.reply(S.recipientErrorMessage(res), {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback("👤 Kirim ke Diri Sendiri", "buy_self")],
-            [Markup.button.callback("❌ Batal", "buy_cancel")],
+            [Markup.button.callback("👤 Send to Myself", "buy_self")],
+            [Markup.button.callback("❌ Cancel", "buy_cancel")],
           ]),
         });
         return;
@@ -196,14 +196,14 @@ function register(bot) {
         state.setSession(userId, s);
 
         await ctx.reply(
-          "⚠️ *Penerima belum pernah /start bot ini.*\n\n" +
-          "Gift akan tetap terkirim, tapi penerima nggak akan dapat notif dari bot.\n\n" +
-          "Lanjut apa batal?",
+          "⚠️ *The recipient has never /start this bot.*\n\n" +
+          "The gift will still be delivered, but the recipient won't get a notification from the bot.\n\n" +
+          "Continue or cancel?",
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
-              [Markup.button.callback("✅ Lanjut", "buy_confirm_send"),
-               Markup.button.callback("❌ Batal", "buy_cancel")],
+              [Markup.button.callback("✅ Continue", "buy_confirm_send"),
+               Markup.button.callback("❌ Cancel", "buy_cancel")],
             ]),
           }
         );
@@ -239,14 +239,14 @@ function register(bot) {
 
       if (!orderId) {
         return ctx.answerPreCheckoutQuery(false, {
-          error_message: 'Payload tidak valid. Silakan buat order baru.',
+          error_message: 'Invalid payload. Please create a new order.',
         });
       }
 
       const order = await S.getOrder(orderId);
       if (!order || order.status !== 'pending') {
         return ctx.answerPreCheckoutQuery(false, {
-          error_message: 'Order sudah tidak valid. Silakan buat order baru.',
+          error_message: 'Order is no longer valid. Please create a new order.',
         });
       }
 
@@ -254,7 +254,7 @@ function register(bot) {
     } catch (err) {
       console.error('❌ pre_checkout error:', err.message);
       return ctx.answerPreCheckoutQuery(false, {
-        error_message: 'Terjadi kesalahan. Coba lagi.',
+        error_message: 'An error occurred. Please try again.',
       });
     }
   });
@@ -275,15 +275,15 @@ function register(bot) {
 
       const r = await S.refundStars(ctx.from.id, payment.telegram_payment_charge_id);
       await S.logEvent(
-        `⚠️ *Order tidak ditemukan, refund otomatis*\n👤 User: ${ctx.from.id}\n` +
-        `🆔 Payload: \`${payload}\`\n💰 Refund: ${r.ok ? '✅ OK' : '❌ GAGAL'}`
+        `⚠️ *Order not found, automatic refund*\n👤 User: ${ctx.from.id}\n` +
+        `🆔 Payload: \`${payload}\`\n💰 Refund: ${r.ok ? '✅ OK' : '❌ FAILED'}`
       );
 
       return ctx.reply(
         r.ok
-          ? "⚠️ Order tidak ditemukan. Pembayaran kamu sudah otomatis direfund. 💸"
-          : "❌ Order tidak ditemukan dan refund gagal. Hubungi admin.",
-        Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+          ? "⚠️ Order not found. Your payment has been automatically refunded. 💸"
+          : "❌ Order not found and refund failed. Please contact admin.",
+        Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]])
       );
     }
 
@@ -301,9 +301,9 @@ function register(bot) {
       });
       return ctx.reply(
         r.ok
-          ? "❌ Gift tidak tersedia. Pembayaran kamu sudah otomatis direfund. 💸"
-          : "❌ Gift tidak tersedia dan refund gagal. Hubungi admin.",
-        Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]])
+          ? "❌ Gift is unavailable. Your payment has been automatically refunded. 💸"
+          : "❌ Gift is unavailable and refund failed. Please contact admin.",
+        Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]])
       );
     }
 
@@ -335,10 +335,10 @@ function register(bot) {
       await S.incrementUserOrder(order.userId, order.giftId, displayPrice);
 
       await ctx.reply(
-        `✅ *${gift.name}* berhasil dikirim ke ${order.recipientLabel}!`,
+        `✅ *${gift.name}* successfully sent to ${order.recipientLabel}!`,
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]]),
+          ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]]),
         }
       );
 
@@ -346,7 +346,7 @@ function register(bot) {
         try {
           await ctx.telegram.sendMessage(
             order.recipientId,
-            `🎁 Kamu baru saja menerima gift! Cek profil Telegram kamu.`
+            `🎁 You just received a gift! Check your Telegram profile.`
           );
         } catch (_) {}
       }
@@ -355,11 +355,11 @@ function register(bot) {
         try {
           await state.bot.telegram.sendMessage(
             state.OWNER_ID,
-            `💰 *Order Sukses!*\n\n` +
+            `💰 *Order Successful!*\n\n` +
             `🎁 Gift: ${gift.name}\n` +
             `👤 Buyer: ${order.senderName} (\`${order.userId}\`)\n` +
-            `🎯 Penerima: ${order.recipientLabel}\n` +
-            `💵 Dibayar: ${displayPrice}⭐\n🏷️ Cost: ${costPrice}⭐\n💰 Profit: ${profit}⭐\n` +
+            `🎯 Recipient: ${order.recipientLabel}\n` +
+            `💵 Paid: ${displayPrice}⭐\n🏷️ Cost: ${costPrice}⭐\n💰 Profit: ${profit}⭐\n` +
             `🆔 \`${orderId}\``,
             { parse_mode: 'Markdown' }
           );
@@ -367,7 +367,7 @@ function register(bot) {
       }
 
       await S.logEvent(
-        `✅ *Order Sukses*\n\n🎁 ${gift.name}\n` +
+        `✅ *Order Successful*\n\n🎁 ${gift.name}\n` +
         `👤 ${order.senderName} (\`${order.userId}\`)\n` +
         `🎯 ${order.recipientLabel}\n💵 ${displayPrice}⭐ (profit ${profit}⭐)\n🆔 \`${orderId}\``
       );
@@ -387,18 +387,18 @@ function register(bot) {
         });
 
         await ctx.reply(
-          `❌ Gift gagal dikirim (${err.message}).\n\n` +
-          `💸 *Pembayaran kamu sudah otomatis direfund* (${displayPrice}⭐).\n` +
-          `Cek saldo Stars kamu di Telegram.\n\n` +
-          `Kode refund: \`${payment.telegram_payment_charge_id}\``,
+          `❌ Failed to send gift (${err.message}).\n\n` +
+          `💸 *Your payment has been automatically refunded* (${displayPrice}⭐).\n` +
+          `Check your Stars balance on Telegram.\n\n` +
+          `Refund code: \`${payment.telegram_payment_charge_id}\``,
           {
             parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]]),
+            ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]]),
           }
         );
 
         await S.logEvent(
-          `💸 *Refund Otomatis OK*\n\n🎁 ${gift.name}\n` +
+          `💸 *Automatic Refund OK*\n\n🎁 ${gift.name}\n` +
           `👤 ${order.senderName} (\`${order.userId}\`)\n❗ Error: ${err.message}\n🆔 \`${orderId}\``
         );
 
@@ -406,7 +406,7 @@ function register(bot) {
           try {
             await state.bot.telegram.sendMessage(
               state.OWNER_ID,
-              `💸 *Refund Otomatis Berhasil*\n\n🎁 ${gift.name} — ${displayPrice}⭐\n` +
+              `💸 *Automatic Refund Successful*\n\n🎁 ${gift.name} — ${displayPrice}⭐\n` +
               `👤 ${order.senderName}\n❗ Error: ${err.message}`,
               { parse_mode: 'Markdown' }
             );
@@ -424,7 +424,7 @@ function register(bot) {
         });
 
         await S.logEvent(
-          `🚨 *REFUND GAGAL — DIJADWALKAN RETRY*\n\n🎁 ${gift.name}\n` +
+          `🚨 *REFUND FAILED — RETRY SCHEDULED*\n\n🎁 ${gift.name}\n` +
           `👤 ${order.senderName} (\`${order.userId}\`)\n` +
           `💸 Charge: \`${payment.telegram_payment_charge_id}\`\n` +
           `❗ Error: ${refund.error}\n🆔 \`${orderId}\``
@@ -434,24 +434,24 @@ function register(bot) {
           try {
             await state.bot.telegram.sendMessage(
               state.OWNER_ID,
-              `🚨 *Refund Gagal — Auto-Retry Dijadwalkan*\n\n` +
+              `🚨 *Refund Failed — Auto-Retry Scheduled*\n\n` +
               `👤 Buyer: ${order.senderName} (${order.userId})\n` +
               `🎁 Gift: ${gift.name}\n` +
               `💸 Charge ID: \`${payment.telegram_payment_charge_id}\`\n` +
               `❗ Error: ${refund.error}\n\n` +
-              `_Bot akan coba refund otomatis tiap beberapa menit._`,
+              `_The bot will retry the refund automatically every few minutes._`,
               { parse_mode: 'Markdown' }
             );
           } catch (_) {}
         }
 
         await ctx.reply(
-          `❌ Gift gagal dikirim. Pembayaran kamu *sedang diproses refund otomatis*.\n\n` +
-          `Kalau dalam 1 jam belum masuk, hubungi admin dengan kode:\n` +
+          `❌ Failed to send gift. Your payment is *being processed for automatic refund*.\n\n` +
+          `If it hasn't arrived within 1 hour, contact admin with this code:\n` +
           `\`${payment.telegram_payment_charge_id}\``,
           {
             parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Menu Utama", "buy_cancel")]]),
+            ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Main Menu", "buy_cancel")]]),
           }
         );
       }

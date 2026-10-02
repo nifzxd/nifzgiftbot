@@ -39,7 +39,7 @@ async function showCaptcha(ctx, errorMsg = null, keepWrongCount = false) {
     const wait = prev.captchaCooldownUntil - now;
     return S.sendOrEdit(
       ctx,
-      `🚫 *Terlalu banyak jawaban salah.*\n\nCoba lagi dalam *${wait} detik*.`,
+      `🚫 *Too many wrong answers.*\n\nTry again in *${wait} seconds*.`,
       { parse_mode: 'Markdown' }
     );
   }
@@ -71,12 +71,12 @@ async function showCaptcha(ctx, errorMsg = null, keepWrongCount = false) {
 
   const text =
     (errorMsg ? `${errorMsg}\n\n` : '') +
-    `🤖 *Verifikasi Keamanan*\n\n` +
-    `Untuk mencegah bot & spam, jawab pertanyaan berikut:\n\n` +
+    `🤖 *Security Verification*\n\n` +
+    `To prevent bots & spam, answer the following question:\n\n` +
     `❓ *${c.question}*\n\n` +
-    `⏰ Soal berlaku *${CAPTCHA_EXPIRE_SEC} detik*.\n` +
-    `⚠️ Maks *${CAPTCHA_MAX_WRONG}x salah*, setelah itu cooldown ${CAPTCHA_COOLDOWN_SEC} detik.\n\n` +
-    `Pilih jawaban yang benar:`;
+    `⏰ Question is valid for *${CAPTCHA_EXPIRE_SEC} seconds*.\n` +
+    `⚠️ Max *${CAPTCHA_MAX_WRONG} wrong attempts*, then cooldown ${CAPTCHA_COOLDOWN_SEC} seconds.\n\n` +
+    `Choose the correct answer:`;
 
   await S.sendOrEdit(ctx, text, {
     parse_mode: 'Markdown',
@@ -108,21 +108,21 @@ function register(bot) {
 
     // FIX: cek flag captcha, bukan `step`
     if (!s.captchaActive || s.captchaAnswer === undefined) {
-      return ctx.answerCbQuery('❌ Sesi captcha tidak aktif').catch(() => {});
+      return ctx.answerCbQuery('❌ Captcha session is not active').catch(() => {});
     }
     if (s.captchaCooldownUntil && now < s.captchaCooldownUntil) {
       const wait = s.captchaCooldownUntil - now;
-      return ctx.answerCbQuery(`🚫 Tunggu ${wait}s lagi`).catch(() => {});
+      return ctx.answerCbQuery(`🚫 Wait ${wait}s more`).catch(() => {});
     }
     if (s.captchaExpiresAt && now > s.captchaExpiresAt) {
-      await ctx.answerCbQuery('⏰ Soal expired').catch(() => {});
+      await ctx.answerCbQuery('⏰ Question expired').catch(() => {});
       const { captchaActive, captchaAnswer, captchaExpiresAt, captchaWrongCount, captchaCooldownUntil, ...rest } = s;
       state.setSession(userId, rest);
-      return showCaptcha(ctx, '⏰ *Waktu habis!* Ini soal baru:', false);
+      return showCaptcha(ctx, '⏰ *Time is up!* Here is a new question:', false);
     }
 
     if (answer === s.captchaAnswer) {
-      await ctx.answerCbQuery('✅ Benar!').catch(() => {});
+      await ctx.answerCbQuery('✅ Correct!').catch(() => {});
       await S.markVerified(userId);
 
       const { captchaActive, captchaAnswer, captchaExpiresAt, captchaWrongCount, captchaCooldownUntil, ...rest } = s;
@@ -130,12 +130,12 @@ function register(bot) {
       // Kalau user lagi di tengah order flow, lanjutin
       if (rest.step && ['await_recipient', 'await_text', 'ready', 'await_recipient_confirm'].includes(rest.step)) {
         state.setSession(userId, rest);
-        return ctx.reply("✅ Verifikasi berhasil! Lanjutkan pesanan kamu ya.");
+        return ctx.reply("✅ Verification successful! Continue your order.");
       }
 
       state.deleteSession(userId);
       await S.logEvent(
-        `✅ *User Terverifikasi*\n` +
+        `✅ *User Verified*\n` +
         `👤 ${ctx.from.first_name || '-'}${ctx.from.username ? ` (@${ctx.from.username})` : ''}\n` +
         `🆔 \`${ctx.from.id}\``
       );
@@ -153,15 +153,15 @@ function register(bot) {
       await ctx.answerCbQuery(`🚫 Cooldown ${CAPTCHA_COOLDOWN_SEC}s`).catch(() => {});
       return S.sendOrEdit(
         ctx,
-        `🚫 *Terlalu banyak jawaban salah!*\n\nTunggu *${CAPTCHA_COOLDOWN_SEC} detik* sebelum coba lagi.`,
+        `🚫 *Too many wrong answers!*\n\nWait *${CAPTCHA_COOLDOWN_SEC} seconds* before trying again.`,
         { parse_mode: 'Markdown' }
       );
     }
 
-    await ctx.answerCbQuery(`❌ Salah (${wrongCount}/${CAPTCHA_MAX_WRONG})`).catch(() => {});
+    await ctx.answerCbQuery(`❌ Wrong (${wrongCount}/${CAPTCHA_MAX_WRONG})`).catch(() => {});
     return showCaptcha(
       ctx,
-      `❌ Jawaban salah (${wrongCount}/${CAPTCHA_MAX_WRONG}). Coba lagi!`,
+      `❌ Wrong answer (${wrongCount}/${CAPTCHA_MAX_WRONG}). Try again!`,
       true
     );
   });
@@ -185,7 +185,7 @@ function register(bot) {
     if (await S.isVerified(userId)) return next();
 
     if (ctx.callbackQuery) {
-      await ctx.answerCbQuery('🔒 Verifikasi dulu ya').catch(() => {});
+      await ctx.answerCbQuery('🔒 Please verify first').catch(() => {});
     }
     return showCaptcha(ctx).catch(() => {});
   });
